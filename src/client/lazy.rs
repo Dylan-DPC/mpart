@@ -78,15 +78,7 @@ impl<'a> Into<io::Error> for LazyError<'a, io::Error> {
     }
 }
 
-impl<'a, E: Error> Error for LazyError<'a, E> {
-    fn description(&self) -> &str {
-        self.error.description()
-    }
-
-    fn cause(&self) -> Option<&dyn Error> {
-        Some(&self.error)
-    }
-}
+impl<'a, E: Error> Error for LazyError<'a, E> {}
 
 impl<'a, E: fmt::Debug> fmt::Debug for LazyError<'a, E> {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
@@ -266,7 +258,7 @@ pub struct PreparedFields<'d> {
 
 impl<'d> PreparedFields<'d> {
     fn from_fields<'n>(fields: &mut Vec<Field<'n, 'd>>) -> Result<Self, LazyIoError<'n>> {
-        debug!("Field count: {}", fields.len());
+        log::debug!("Field count: {}", fields.len());
 
         // One of the two RFCs specifies that any bytes before the first boundary are to be
         // ignored anyway
@@ -340,7 +332,7 @@ impl<'d> PreparedFields<'d> {
 impl<'d> Read for PreparedFields<'d> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
-            debug!("PreparedFields::read() was passed a zero-sized buffer.");
+            log::debug!("PreparedFields::read() was passed a zero-sized buffer.");
             return Ok(0);
         }
 
@@ -422,7 +414,7 @@ impl<'d> PreparedField<'d> {
 
 impl<'d> Read for PreparedField<'d> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        debug!("PreparedField::read()");
+        log::debug!("PreparedField::read()");
 
         if !cursor_at_end(&self.header) {
             self.header.read(buf)
@@ -516,13 +508,13 @@ mod hyper {
             let mut fields = match self.prepare() {
                 Ok(fields) => fields,
                 Err(err) => {
-                    error!("Error preparing request: {}", err);
+                    log::error!("Error preparing request: {}", err);
                     return Err(err.error.into());
                 }
             };
 
             mut_fn(client.post(url))
-                .header(::client::hyper::content_type(fields.boundary()))
+                .header(crate::client::hyper::content_type(fields.boundary()))
                 .body(fields.to_body())
                 .send()
         }

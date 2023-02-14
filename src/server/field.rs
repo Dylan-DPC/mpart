@@ -8,7 +8,6 @@
 //! `multipart` field header parsing.
 use mime::Mime;
 
-use std::error::Error;
 use std::io::{self, BufRead, Read};
 use std::{fmt, str};
 
@@ -19,6 +18,7 @@ use super::httparse::{self, Error as HttparseError, Header, Status, EMPTY_HEADER
 use self::ReadEntryResult::*;
 
 use super::save::SaveBuilder;
+use thiserror::Error;
 
 const EMPTY_STR_HEADER: StrHeader<'static> = StrHeader { name: "", val: "" };
 
@@ -27,7 +27,7 @@ macro_rules! invalid_cont_disp {
         return Err(ParseHeaderError::InvalidContDisp(
             $reason,
             $cause.to_string(),
-        ));
+        ))
     };
 }
 
@@ -79,7 +79,7 @@ where
             Status::Complete((consume_, raw_headers)) => {
                 let mut headers = [EMPTY_STR_HEADER; HEADER_LEN];
                 let headers = copy_headers(raw_headers, &mut headers)?;
-                debug!("Parsed headers: {:?}", headers);
+                log::debug!("Parsed headers: {:?}", headers);
                 consume = consume_;
                 ret = closure(headers);
                 break;
@@ -202,7 +202,7 @@ impl ContentDisp {
 fn parse_content_type(headers: &[StrHeader]) -> Result<Option<Mime>, ParseHeaderError> {
     if let Some(header) = find_header(headers, "Content-Type") {
         // Boundary parameter will be parsed into the `Mime`
-        debug!("Found Content-Type: {:?}", header.val);
+        log::debug!("Found Content-Type: {:?}", header.val);
         Ok(Some(header.val.parse::<Mime>().map_err(|_| {
             ParseHeaderError::MimeError(header.val.into())
         })?))
@@ -386,7 +386,7 @@ pub trait ReadEntry: PrivReadEntry + Sized {
     fn read_entry(mut self) -> ReadEntryResult<Self> {
         self.set_min_buf_size(super::boundary::MIN_BUF_SIZE);
 
-        debug!("ReadEntry::read_entry()");
+        log::debug!("ReadEntry::read_entry()");
 
         if !try_read_entry!(self; self.consume_boundary()) {
             return End(self);
@@ -399,7 +399,7 @@ pub trait ReadEntry: PrivReadEntry + Sized {
                 // fields of this type are sent by (supposedly) no known clients
                 // (https://tools.ietf.org/html/rfc7578#appendix-A) so I'd be fascinated
                 // to hear about any in the wild
-                info!(
+                log::info!(
                     "Found nested multipart field: {:?}:\r\n\
                      Please report this client's User-Agent and any other available details \
                      at https://github.com/abonander/multipart/issues/56",
@@ -531,42 +531,21 @@ impl<M: ReadEntry, Entry> ReadEntryResult<M, Entry> {
     }
 }
 
-const GENERIC_PARSE_ERR: &str = "an error occurred while parsing field headers";
-
-quick_error! {
-    #[derive(Debug)]
-    enum ParseHeaderError {
-        /// The `Content-Disposition` header was not found
-        MissingContentDisposition(headers: String) {
-            display(x) -> ("{}:\n{}", x.description(), headers)
-            description("\"Content-Disposition\" header not found in field headers")
-        }
-        InvalidContDisp(reason: &'static str, cause: String) {
-            display(x) -> ("{}: {}: {}", x.description(), reason, cause)
-            description("invalid \"Content-Disposition\" header")
-        }
-        /// The header was found but could not be parsed
-        TokenizeError(err: HttparseError) {
-            description(GENERIC_PARSE_ERR)
-            display(x) -> ("{}: {}", x.description(), err)
-            cause(err)
-            from()
-        }
-        MimeError(cont_type: String) {
-            description("Failed to parse Content-Type")
-            display(this) -> ("{}: {}", this.description(), cont_type)
-        }
-        TooLarge {
-            description("field headers section ridiculously long or missing trailing CRLF-CRLF")
-        }
-        /// IO error
-        Io(err: io::Error) {
-            description("an io error occurred while parsing the headers")
-            display(x) -> ("{}: {}", x.description(), err)
-            cause(err)
-            from()
-        }
-    }
+#[derive(Debug, Error)]
+enum ParseHeaderError {
+    /// The `Content-Disposition` header was not found
+    #[error("{}: \"Content-Disposition\" header not found in field headers", .0)]
+    MissingContentDisposition(String),
+    #[error("invalid \"Content-Disposition\" header: {}, {}", .0, .1)]
+    InvalidContDisp(&'static str, String),
+    #[error("an error occurred while parsing field headers: {}", .0)]
+    TokenizeError(#[from] HttparseError),
+    #[error("failed to parse content type {}", .0)]
+    MimeError(String),
+    #[error("field headers section ridiculously long or missing trailing CRLF-CRLF")]
+    TooLarge,
+    #[error("an IO error has occured {}", .0)]
+    Io(#[from] io::Error),
 }
 
 #[test]

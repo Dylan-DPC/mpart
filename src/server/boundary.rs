@@ -9,12 +9,12 @@
 
 use ::safemem;
 
-use super::buf_redux::BufReader;
 use super::buf_redux::policy::MinBuffered;
+use super::buf_redux::BufReader;
 use super::twoway;
 
-use std::cmp;
 use std::borrow::Borrow;
+use std::cmp;
 
 use std::io;
 use std::io::prelude::*;
@@ -27,7 +27,7 @@ pub const MIN_BUF_SIZE: usize = 1024;
 enum State {
     Searching,
     BoundaryRead,
-    AtEnd
+    AtEnd,
 }
 
 /// A struct implementing `Read` and `BufRead` that will yield bytes until it sees a given sequence.
@@ -39,7 +39,10 @@ pub struct BoundaryReader<R> {
     state: State,
 }
 
-impl<R> BoundaryReader<R> where R: Read {
+impl<R> BoundaryReader<R>
+where
+    R: Read,
+{
     /// Internal API
     pub fn from_reader<B: Into<Vec<u8>>>(reader: R, boundary: B) -> BoundaryReader<R> {
         let mut boundary = boundary.into();
@@ -57,13 +60,17 @@ impl<R> BoundaryReader<R> where R: Read {
     fn read_to_boundary(&mut self) -> io::Result<&[u8]> {
         let buf = self.source.fill_buf()?;
 
-        trace!("Buf: {:?}", String::from_utf8_lossy(buf));
+        log::trace!("Buf: {:?}", String::from_utf8_lossy(buf));
 
-        debug!("Before search Buf len: {} Search idx: {} State: {:?}",
-               buf.len(), self.search_idx, self.state);
+        log::debug!(
+            "Before search Buf len: {} Search idx: {} State: {:?}",
+            buf.len(),
+            self.search_idx,
+            self.state
+        );
 
         if self.state == BoundaryRead || self.state == AtEnd {
-            return Ok(&buf[..self.search_idx])
+            return Ok(&buf[..self.search_idx]);
         }
 
         if self.state == Searching && self.search_idx < buf.len() {
@@ -74,32 +81,40 @@ impl<R> BoundaryReader<R> where R: Read {
                 Ok(found_idx) => {
                     self.search_idx += found_idx;
                     self.state = BoundaryRead;
-                },
+                }
                 Err(yield_len) => {
                     self.search_idx += yield_len;
                 }
             }
-        }        
-        
-        debug!("After search Buf len: {} Search idx: {} State: {:?}",
-               buf.len(), self.search_idx, self.state);
+        }
+
+        log::debug!(
+            "After search Buf len: {} Search idx: {} State: {:?}",
+            buf.len(),
+            self.search_idx,
+            self.state
+        );
 
         // back up the cursor to before the boundary's preceding CRLF if we haven't already
         if self.search_idx >= 2 && !buf[self.search_idx..].starts_with(b"\r\n") {
-            let two_bytes_before = &buf[self.search_idx - 2 .. self.search_idx];
+            let two_bytes_before = &buf[self.search_idx - 2..self.search_idx];
 
-            trace!("Two bytes before: {:?} ({:?}) (\"\\r\\n\": {:?})",
-                   String::from_utf8_lossy(two_bytes_before), two_bytes_before, b"\r\n");
+            log::trace!(
+                "Two bytes before: {:?} ({:?}) (\"\\r\\n\": {:?})",
+                String::from_utf8_lossy(two_bytes_before),
+                two_bytes_before,
+                b"\r\n"
+            );
 
             if two_bytes_before == *b"\r\n" {
-                debug!("Subtract two!");
+                log::debug!("Subtract two!");
                 self.search_idx -= 2;
             }
         }
 
         let ret_buf = &buf[..self.search_idx];
 
-        trace!("Returning buf: {:?}", String::from_utf8_lossy(ret_buf));
+        log::trace!("Returning buf: {:?}", String::from_utf8_lossy(ret_buf));
 
         Ok(ret_buf)
     }
@@ -117,16 +132,18 @@ impl<R> BoundaryReader<R> where R: Read {
         }
 
         while self.state == Searching {
-            debug!("Boundary not found yet");
+            log::debug!("Boundary not found yet");
 
             let buf_len = self.read_to_boundary()?.len();
 
             if buf_len == 0 && self.state == Searching {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof,
-                                          "unexpected end of request body"));
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "unexpected end of request body",
+                ));
             }
 
-            debug!("Discarding {} bytes", buf_len);
+            log::debug!("Discarding {} bytes", buf_len);
 
             self.consume(buf_len);
         }
@@ -145,7 +162,7 @@ impl<R> BoundaryReader<R> where R: Read {
                 consume_amt += 2;
 
                 // assert that we've found the boundary after the CRLF
-                debug_assert_eq!(*self.boundary, bnd_segment[2 .. self.boundary.len() + 2]);
+                debug_assert_eq!(*self.boundary, bnd_segment[2..self.boundary.len() + 2]);
             } else {
                 // assert that we've found the boundary
                 debug_assert_eq!(*self.boundary, bnd_segment[..self.boundary.len()]);
@@ -155,42 +172,51 @@ impl<R> BoundaryReader<R> where R: Read {
             consume_amt += 2;
 
             if buf.len() < consume_amt {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof,
-                                          "not enough bytes to verify boundary"));
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "not enough bytes to verify boundary",
+                ));
             }
 
             // we have enough bytes to verify
             self.state = Searching;
 
-            let last_two = &buf[consume_amt - 2 .. consume_amt];
+            let last_two = &buf[consume_amt - 2..consume_amt];
 
             match last_two {
                 b"\r\n" => self.state = Searching,
                 b"--" => self.state = AtEnd,
-                _ => return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("unexpected bytes following multipart boundary: {:X} {:X}",
-                            last_two[0], last_two[1])
-                )),
+                _ => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "unexpected bytes following multipart boundary: {:X} {:X}",
+                            last_two[0], last_two[1]
+                        ),
+                    ))
+                }
             }
 
             consume_amt
         };
 
-        trace!("Consuming {} bytes, remaining buf: {:?}",
-               consume_amt,
-               String::from_utf8_lossy(self.source.buffer()));
+        log::trace!(
+            "Consuming {} bytes, remaining buf: {:?}",
+            consume_amt,
+            String::from_utf8_lossy(self.source.buffer())
+        );
 
         self.source.consume(consume_amt);
 
-        if cfg!(debug_assertions) {
-
-        }
+        if cfg!(debug_assertions) {}
 
         self.search_idx = 0;
 
-        trace!("Consumed boundary (state: {:?}), remaining buf: {:?}", self.state,
-               String::from_utf8_lossy(self.source.buffer()));
+        log::trace!(
+            "Consumed boundary (state: {:?}), remaining buf: {:?}",
+            self.state,
+            String::from_utf8_lossy(self.source.buffer())
+        );
 
         Ok(self.state != AtEnd)
     }
@@ -205,7 +231,7 @@ fn find_boundary(buf: &[u8], boundary: &[u8]) -> Result<usize, usize> {
     let search_start = buf.len().saturating_sub(boundary.len());
 
     // search for just the boundary fragment
-    for i in search_start .. buf.len() {
+    for i in search_start..buf.len() {
         if boundary.starts_with(&buf[i..]) {
             return Err(i);
         }
@@ -234,7 +260,10 @@ impl<R> Borrow<R> for BoundaryReader<R> {
     }
 }
 
-impl<R> Read for BoundaryReader<R> where R: Read {
+impl<R> Read for BoundaryReader<R>
+where
+    R: Read,
+{
     fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
         let read = {
             let mut buf = self.read_to_boundary()?;
@@ -247,7 +276,10 @@ impl<R> Read for BoundaryReader<R> where R: Read {
     }
 }
 
-impl<R> BufRead for BoundaryReader<R> where R: Read {
+impl<R> BufRead for BoundaryReader<R>
+where
+    R: Read,
+{
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
         self.read_to_boundary()
     }
@@ -255,7 +287,7 @@ impl<R> BufRead for BoundaryReader<R> where R: Read {
     fn consume(&mut self, amt: usize) {
         let true_amt = cmp::min(amt, self.search_idx);
 
-        debug!("Consume! amt: {} true amt: {}", amt, true_amt);
+        log::debug!("Consume! amt: {} true amt: {}", amt, true_amt);
 
         self.source.consume(true_amt);
         self.search_idx -= true_amt;
@@ -275,7 +307,7 @@ mod test {
                                     --boundary\r\n\
                                     dashed-value-2\r\n\
                                     --boundary--";
-        
+
     #[test]
     fn test_boundary() {
         ::init_log();
@@ -286,7 +318,7 @@ mod test {
         let mut reader = BoundaryReader::from_reader(src, BOUNDARY);
 
         let mut buf = String::new();
-        
+
         test_boundary_reader(&mut reader, &mut buf);
     }
 
@@ -299,7 +331,7 @@ mod test {
         fn split(data: &'a [u8], at: usize) -> SplitReader<'a> {
             let (left, right) = data.split_at(at);
 
-            SplitReader { 
+            SplitReader {
                 left: left,
                 right: right,
             }
@@ -329,9 +361,9 @@ mod test {
         debug!("Testing boundary (split)");
 
         let mut buf = String::new();
-        
+
         // Substitute for `.step_by()` being unstable.
-        for split_at in 0 .. TEST_VAL.len(){
+        for split_at in 0..TEST_VAL.len() {
             debug!("Testing split at: {}", split_at);
 
             let src = SplitReader::split(TEST_VAL.as_bytes(), split_at);
@@ -404,7 +436,6 @@ mod test {
 
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
-
 
         debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);

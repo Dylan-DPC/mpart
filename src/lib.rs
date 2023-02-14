@@ -42,36 +42,6 @@
 #![cfg_attr(feature = "bench", feature(test))]
 #![deny(missing_docs)]
 
-#[macro_use]
-extern crate log;
-
-extern crate mime;
-extern crate mime_guess;
-extern crate rand;
-extern crate tempfile;
-
-#[cfg(feature = "quick-error")]
-#[macro_use]
-extern crate quick_error;
-
-#[cfg(feature = "server")]
-extern crate safemem;
-
-#[cfg(feature = "hyper")]
-extern crate hyper;
-
-#[cfg(feature = "iron")]
-extern crate iron;
-
-#[cfg(feature = "tiny_http")]
-extern crate tiny_http;
-
-#[cfg(test)]
-extern crate env_logger;
-
-#[cfg(any(feature = "mock", test))]
-pub mod mock;
-
 use rand::Rng;
 
 /// Chain a series of results together, with or without previous results.

@@ -207,7 +207,7 @@ impl HttpStream for io::Sink {
 }
 
 fn gen_boundary() -> String {
-    ::random_alphanumeric(BOUNDARY_LEN)
+    crate::random_alphanumeric(BOUNDARY_LEN)
 }
 
 fn open_stream<R: HttpRequest>(
@@ -305,7 +305,7 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
 }
 
 fn mime_filename(path: &Path) -> (Mime, Option<&str>) {
-    let content_type = ::mime_guess::from_path(path);
+    let content_type = mime_guess::from_path(path);
     let filename = opt_filename(path);
     (content_type.first_or_octet_stream(), filename)
 }
