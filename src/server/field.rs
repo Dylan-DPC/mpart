@@ -1,20 +1,11 @@
-// Copyright 2016 `multipart` Crate Developers
-//
-// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
-// copied, modified, or distributed except according to those terms.
 
 //! `multipart` field header parsing.
 use mime::Mime;
 
 use std::io::{self, BufRead, Read};
 use std::{fmt, str};
-
 use std::sync::Arc;
-
-use super::httparse::{self, Error as HttparseError, Header, Status, EMPTY_HEADER};
-
+use httparse::{self, Error as HttparseError, Header, Status, EMPTY_HEADER};
 use self::ReadEntryResult::*;
 
 use super::save::SaveBuilder;
@@ -38,10 +29,10 @@ pub struct StrHeader<'a> {
     val: &'a str,
 }
 
-struct DisplayHeaders<'s, 'a: 's>(&'s [StrHeader<'a>]);
+struct DisplayHeaders<'s, 'a>(&'s [StrHeader<'a>]);
 
 impl<'s, 'a: 's> fmt::Display for DisplayHeaders<'s, 'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for hdr in self.0 {
             writeln!(f, "{}: {}", hdr.name, hdr.val)?;
         }
@@ -53,7 +44,7 @@ impl<'s, 'a: 's> fmt::Display for DisplayHeaders<'s, 'a> {
 fn with_headers<R, F, Ret>(r: &mut R, closure: F) -> Result<Ret, ParseHeaderError>
 where
     R: BufRead,
-    F: FnOnce(&[StrHeader]) -> Ret,
+    F: FnOnce(&[StrHeader<'_>]) -> Ret,
 {
     const HEADER_LEN: usize = 4;
 
@@ -132,7 +123,8 @@ impl FieldHeaders {
         with_headers(r, Self::parse)?
     }
 
-    fn parse(headers: &[StrHeader]) -> Result<FieldHeaders, ParseHeaderError> {
+    fn parse(headers: &[StrHeader<'_>]) -> Result<FieldHeaders, ParseHeaderError> {
+
         let cont_disp = ContentDisp::parse_required(headers)?;
 
         Ok(FieldHeaders {
@@ -152,7 +144,7 @@ struct ContentDisp {
 }
 
 impl ContentDisp {
-    fn parse_required(headers: &[StrHeader]) -> Result<ContentDisp, ParseHeaderError> {
+    fn parse_required(headers: &[StrHeader<'_>]) -> Result<ContentDisp, ParseHeaderError> {
         let header = if let Some(header) = find_header(headers, "Content-Disposition") {
             header
         } else {
@@ -199,7 +191,7 @@ impl ContentDisp {
     }
 }
 
-fn parse_content_type(headers: &[StrHeader]) -> Result<Option<Mime>, ParseHeaderError> {
+fn parse_content_type(headers: &[StrHeader<'_>]) -> Result<Option<Mime>, ParseHeaderError> {
     if let Some(header) = find_header(headers, "Content-Type") {
         // Boundary parameter will be parsed into the `Mime`
         log::debug!("Found Content-Type: {:?}", header.val);
@@ -358,7 +350,7 @@ fn get_str_after<'a>(
     end_val_delim: char,
     haystack: &'a str,
 ) -> Option<(&'a str, &'a str)> {
-    let val_start_idx = try_opt!(haystack.find(needle)) + needle.len();
+    let val_start_idx = haystack.find(needle)? + needle.len();
     let val_end_idx = haystack[val_start_idx..]
         .find(end_val_delim)
         .map_or(haystack.len(), |end_idx| end_idx + val_start_idx);
@@ -388,13 +380,13 @@ pub trait ReadEntry: PrivReadEntry + Sized {
 
         log::debug!("ReadEntry::read_entry()");
 
-        if !try_read_entry!(self; self.consume_boundary()) {
-            return End(self);
-        }
+        if self.consume_boundary().is_err() {
+            return ReadEntryResult::End(self)
+        } 
 
-        let field_headers: FieldHeaders = try_read_entry!(self; self.read_headers());
-
-        if let Some(ct) = field_headers.content_type.as_ref() {
+        match self.read_headers() {
+            Ok(headers) => {
+        if let Some(ct) = headers.content_type.as_ref() {
             if ct.type_() == mime::MULTIPART {
                 // fields of this type are sent by (supposedly) no known clients
                 // (https://tools.ietf.org/html/rfc7578#appendix-A) so I'd be fascinated
@@ -403,17 +395,19 @@ pub trait ReadEntry: PrivReadEntry + Sized {
                     "Found nested multipart field: {:?}:\r\n\
                      Please report this client's User-Agent and any other available details \
                      at https://github.com/abonander/multipart/issues/56",
-                    field_headers
+                   headers 
                 );
             }
         }
 
         Entry(MultipartField {
-            headers: field_headers,
+            headers,
             data: MultipartData { inner: Some(self) },
         })
+            },
+            Err(e) => ReadEntryResult::Error(self, e)
+        }
     }
-
     /// Equivalent to `read_entry()` but takes `&mut self`
     fn read_entry_mut(&mut self) -> ReadEntryResult<&mut Self> {
         ReadEntry::read_entry(self)

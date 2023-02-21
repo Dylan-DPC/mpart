@@ -1,9 +1,3 @@
-// Copyright 2016 `multipart` Crate Developers
-//
-// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
-// copied, modified, or distributed except according to those terms.
 //! The client-side abstraction for multipart requests. Enabled with the `client` feature.
 //!
 //! Use this when sending POST requests with files to a server.
@@ -243,10 +237,8 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
     }
 
     fn write_text(&mut self, name: &str, text: &str) -> io::Result<()> {
-        chain_result! {
-            self.write_field_headers(name, None, None),
+            self.write_field_headers(name, None, None)?;
             self.inner.write_all(text.as_bytes())
-        }
     }
 
     fn write_file(&mut self, name: &str, path: &Path) -> io::Result<()> {
@@ -265,11 +257,9 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
         // This is necessary to make sure it is interpreted as a file on the server end.
         let content_type = Some(content_type.unwrap_or(mime::APPLICATION_OCTET_STREAM));
 
-        chain_result! {
-            self.write_field_headers(name, filename, content_type),
-            io::copy(stream, &mut self.inner),
+            self.write_field_headers(name, filename, content_type)?;
+            io::copy(stream, &mut self.inner)?;
             Ok(())
-        }
     }
 
     fn write_field_headers(
@@ -278,17 +268,15 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
         filename: Option<&str>,
         content_type: Option<Mime>,
     ) -> io::Result<()> {
-        chain_result! {
             // Write the first boundary, or the boundary for the previous field.
-            self.write_boundary(),
-            { self.data_written = true; Ok(()) },
-            write!(self.inner, "Content-Disposition: form-data; name=\"{}\"", name),
+            self.write_boundary()?;
+            self.data_written = true;
+            write!(self.inner, "Content-Disposition: form-data; name=\"{}\"", name)?;
             filename.map(|filename| write!(self.inner, "; filename=\"{}\"", filename))
-                .unwrap_or(Ok(())),
+                .unwrap_or(Ok(()))?;
             content_type.map(|content_type| write!(self.inner, "\r\nContent-Type: {}", content_type))
-                .unwrap_or(Ok(())),
+                .unwrap_or(Ok(()))?;
             self.inner.write_all(b"\r\n\r\n")
-        }
     }
 
     fn finish(mut self) -> io::Result<W> {
@@ -305,7 +293,7 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
 }
 
 fn mime_filename(path: &Path) -> (Mime, Option<&str>) {
-    let content_type = mime_guess::from_path(path);
+    let content_type = mummer::from_path(path);
     let filename = opt_filename(path);
     (content_type.first_or_octet_stream(), filename)
 }

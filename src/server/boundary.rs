@@ -1,21 +1,12 @@
-// Copyright 2016 `multipart` Crate Developers
-//
-// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
-// copied, modified, or distributed except according to those terms.
 
 //! Boundary parsing for `multipart` requests.
 
 use ::safemem;
 
-use super::buf_redux::policy::MinBuffered;
-use super::buf_redux::BufReader;
-use super::twoway;
+use reducks_buffer::policy::MinBuffered;
+use reducks_buffer::BufReader;
 
-use std::borrow::Borrow;
 use std::cmp;
-
 use std::io;
 use std::io::prelude::*;
 
@@ -240,26 +231,6 @@ fn find_boundary(buf: &[u8], boundary: &[u8]) -> Result<usize, usize> {
     Err(buf.len())
 }
 
-#[cfg(feature = "bench")]
-impl<'a> BoundaryReader<io::Cursor<&'a [u8]>> {
-    fn new_with_bytes(bytes: &'a [u8], boundary: &str) -> Self {
-        Self::from_reader(io::Cursor::new(bytes), boundary)
-    }
-
-    fn reset(&mut self) {
-        // Dump buffer and reset cursor
-        self.source.seek(io::SeekFrom::Start(0));
-        self.state = Searching;
-        self.search_idx = 0;
-    }
-}
-
-impl<R> Borrow<R> for BoundaryReader<R> {
-    fn borrow(&self) -> &R {
-        self.source.get_ref()
-    }
-}
-
 impl<R> Read for BoundaryReader<R>
 where
     R: Read,
@@ -310,9 +281,9 @@ mod test {
 
     #[test]
     fn test_boundary() {
-        ::init_log();
+        crate::init_log();
 
-        debug!("Testing boundary (no split)");
+       log::debug!("Testing boundary (no split)");
 
         let src = &mut TEST_VAL.as_bytes();
         let mut reader = BoundaryReader::from_reader(src, BOUNDARY);
@@ -356,15 +327,15 @@ mod test {
 
     #[test]
     fn test_split_boundary() {
-        ::init_log();
+        crate::init_log();
 
-        debug!("Testing boundary (split)");
+       log::debug!("Testing boundary (split)");
 
         let mut buf = String::new();
 
         // Substitute for `.step_by()` being unstable.
         for split_at in 0..TEST_VAL.len() {
-            debug!("Testing split at: {}", split_at);
+           log::debug!("Testing split at: {}", split_at);
 
             let src = SplitReader::split(TEST_VAL.as_bytes(), split_at);
             let mut reader = BoundaryReader::from_reader(src, BOUNDARY);
@@ -375,38 +346,38 @@ mod test {
     fn test_boundary_reader<R: Read>(reader: &mut BoundaryReader<R>, buf: &mut String) {
         buf.clear();
 
-        debug!("Read 1");
+       log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert!(buf.is_empty(), "Buffer not empty: {:?}", buf);
         buf.clear();
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         reader.consume_boundary().unwrap();
 
-        debug!("Read 2");
+       log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "dashed-value-1");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         reader.consume_boundary().unwrap();
 
-        debug!("Read 3");
+       log::debug!("Read 3");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "dashed-value-2");
         buf.clear();
 
-        debug!("Consume 3");
+       log::debug!("Consume 3");
         reader.consume_boundary().unwrap();
 
-        debug!("Read 4");
+       log::debug!("Read 4");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
 
     #[test]
     fn test_empty_body() {
-        ::init_log();
+        crate::init_log();
 
         // empty body contains closing boundary only
         let mut body: &[u8] = b"--boundary--";
@@ -414,21 +385,21 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-        debug!("Read 1");
+       log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), false);
     }
 
     #[test]
     fn test_leading_crlf() {
-        ::init_log();
+        crate::init_log();
 
         let mut body: &[u8] = b"\r\n\r\n--boundary\r\n\
                          asdf1234\
@@ -437,25 +408,25 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 1");
+       log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "asdf1234\r\n");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-        debug!("Read 2 (empty)");
+       log::debug!("Read 2 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
 
     #[test]
     fn test_trailing_crlf() {
-        ::init_log();
+        crate::init_log();
 
         let mut body: &[u8] = b"--boundary\r\n\
                          asdf1234\
@@ -465,10 +436,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 1");
+       log::debug!("Read 1");
 
         // Repro for https://github.com/abonander/multipart/issues/93
         // These two reads should produce the same buffer
@@ -480,18 +451,18 @@ mod test {
         assert_eq!(buf, "asdf1234\r\n");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 2");
+       log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678");
         buf.clear();
 
-        debug!("Consume 3");
+       log::debug!("Consume 3");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-        debug!("Read 3 (empty)");
+       log::debug!("Read 3 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -499,7 +470,7 @@ mod test {
     // https://github.com/abonander/multipart/issues/93#issuecomment-343610587
     #[test]
     fn test_trailing_lflf() {
-        ::init_log();
+        crate::init_log();
 
         let mut body: &[u8] = b"--boundary\r\n\
                          asdf1234\
@@ -509,10 +480,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 1");
+       log::debug!("Read 1");
 
         // same as above
         let buf1 = reader.read_to_boundary().unwrap().to_owned();
@@ -523,18 +494,18 @@ mod test {
         assert_eq!(buf, "asdf1234\n\n");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 2");
+       log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678");
         buf.clear();
 
-        debug!("Consume 3");
+       log::debug!("Consume 3");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-        debug!("Read 3 (empty)");
+       log::debug!("Read 3 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -542,7 +513,7 @@ mod test {
     // https://github.com/abonander/multipart/issues/104
     #[test]
     fn test_unterminated_body() {
-        ::init_log();
+        crate::init_log();
 
         let mut body: &[u8] = b"--boundary\r\n\
                          asdf1234\
@@ -552,10 +523,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-        debug!("Consume 1");
+       log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 1");
+       log::debug!("Read 1");
 
         // same as above
         let buf1 = reader.read_to_boundary().unwrap().to_owned();
@@ -566,15 +537,15 @@ mod test {
         assert_eq!(buf, "asdf1234\n\n");
         buf.clear();
 
-        debug!("Consume 2");
+       log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-        debug!("Read 2");
+       log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678  ");
         buf.clear();
 
-        debug!("Consume 3 - expecting error");
+       log::debug!("Consume 3 - expecting error");
         reader.consume_boundary().unwrap_err();
     }
 
@@ -608,22 +579,5 @@ mod test {
         assert_eq!(reader.consume_boundary().unwrap(), false);
     }
 
-    #[cfg(feature = "bench")]
-    mod bench {
-        extern crate test;
-        use self::test::Bencher;
+   }
 
-        use super::*;
-
-        #[bench]
-        fn bench_boundary_reader(b: &mut Bencher) {
-            let mut reader = BoundaryReader::new_with_bytes(TEST_VAL.as_bytes(), BOUNDARY);
-            let mut buf = String::with_capacity(256);
-
-            b.iter(|| {
-                reader.reset();
-                test_boundary_reader(&mut reader, &mut buf);
-            });
-        }
-    }
-}

@@ -1,9 +1,3 @@
-// Copyright 2016 `multipart` Crate Developers
-//
-// Licensed under the Apache License, Version 2.0, <LICENSE-APACHE or
-// http://apache.org/licenses/LICENSE-2.0> or the MIT license <LICENSE-MIT or
-// http://opensource.org/licenses/MIT>, at your option. This file may not be
-// copied, modified, or distributed except according to those terms.
 //! Client- and server-side abstractions for HTTP `multipart/form-data` requests.
 //!
 //! ### Features:
@@ -36,56 +30,14 @@
 //! I have opened an issue as a place to collect responses and discussions for these questions
 //! [on Github](https://github.com/abonander/multipart/issues/96). Please quote the RFC-statement
 //! (and/or link to its source line) and provide your feedback there.
-#![cfg_attr(feature = "clippy", feature(plugin))]
-#![cfg_attr(feature = "clippy", plugin(clippy))]
-#![cfg_attr(feature = "clippy", deny(clippy))]
-#![cfg_attr(feature = "bench", feature(test))]
-#![deny(missing_docs)]
+#![deny(rust_2018_idioms)]
 
 use rand::Rng;
-
-/// Chain a series of results together, with or without previous results.
-///
-/// ```
-/// #[macro_use] extern crate multipart;
-///
-/// fn try_add_one(val: u32) -> Result<u32, u32> {
-///     if val < 5 {
-///         Ok(val + 1)
-///     } else {
-///         Err(val)
-///     }
-/// }
-///
-/// fn main() {
-///     let res = chain_result! {
-///         try_add_one(1),
-///         prev -> try_add_one(prev),
-///         prev -> try_add_one(prev),
-///         prev -> try_add_one(prev)
-///     };
-///
-///     println!("{:?}", res);
-/// }
-///
-/// ```
-#[macro_export]
-macro_rules! chain_result {
-    ($first_expr:expr, $($try_expr:expr),*) => (
-        $first_expr $(.and_then(|_| $try_expr))*
-    );
-    ($first_expr:expr, $($($arg:ident),+ -> $try_expr:expr),*) => (
-        $first_expr $(.and_then(|$($arg),+| $try_expr))*
-    );
-}
 
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
-
-#[cfg(all(test, feature = "client", feature = "server"))]
-mod local_test;
 
 fn random_alphanumeric(len: usize) -> String {
     rand::thread_rng()

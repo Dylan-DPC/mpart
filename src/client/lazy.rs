@@ -1,16 +1,15 @@
-//! Multipart requests which write out their data in one fell swoop.
-use mime::Mime;
-
-use std::borrow::Cow;
-use std::error::Error;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use std::io::prelude::*;
 use std::io::Cursor;
+use std::borrow::Cow;
 use std::{fmt, io};
+use std::fs::File;
+use mummer::Mime;
+use std::error::Error;
 
 use super::{HttpRequest, HttpStream};
+
 
 macro_rules! try_lazy (
     ($field:expr, $try:expr) => (
@@ -81,7 +80,7 @@ impl<'a> Into<io::Error> for LazyError<'a, io::Error> {
 impl<'a, E: Error> Error for LazyError<'a, E> {}
 
 impl<'a, E: fmt::Debug> fmt::Debug for LazyError<'a, E> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(ref field_name) = self.field_name {
             fmt.write_fmt(format_args!(
                 "LazyError (on field {:?}): {:?}",
@@ -94,7 +93,7 @@ impl<'a, E: fmt::Debug> fmt::Debug for LazyError<'a, E> {
 }
 
 impl<'a, E: fmt::Display> fmt::Display for LazyError<'a, E> {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(ref field_name) = self.field_name {
             fmt.write_fmt(format_args!(
                 "Error writing field {:?}: {}",
@@ -225,7 +224,7 @@ enum Data<'n, 'd> {
 }
 
 impl<'n, 'd> fmt::Debug for Data<'n, 'd> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Data::Text(ref text) => write!(f, "Data::Text({:?})", text),
             Data::File(ref path) => write!(f, "Data::File({:?})", path),
@@ -425,7 +424,7 @@ impl<'d> Read for PreparedField<'d> {
 }
 
 impl<'d> fmt::Debug for PreparedField<'d> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PreparedField")
             .field("header", &self.header)
             .field("stream", &"Box<Read>")
@@ -499,7 +498,7 @@ mod hyper {
         ///
         /// Note that the body, and the `ContentType` and `ContentLength` headers will be
         /// overwritten, either by this method or by Hyper.
-        pub fn client_request_mut<U: IntoUrl, F: FnOnce(RequestBuilder) -> RequestBuilder>(
+        pub fn client_request_mut<U: IntoUrl, F: FnOnce(RequestBuilder<'_>) -> RequestBuilder<'_>>(
             &mut self,
             client: &Client,
             url: U,

@@ -1,9 +1,3 @@
-#![no_main]
-extern crate libfuzzer_sys;
-extern crate multipart;
-
-#[macro_use]
-extern crate log;
 
 use multipart::server::{Multipart, MultipartData};
 use multipart::mock::ServerRequest;

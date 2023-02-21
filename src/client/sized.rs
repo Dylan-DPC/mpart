@@ -16,6 +16,7 @@ use std::io::prelude::*;
 /// server doesn't support chunked requests or otherwise rejects them.
 ///
 /// [chunked-example]: http://en.wikipedia.org/wiki/Chunked_transfer_encoding#Example
+
 pub struct SizedRequest<R> {
     inner: R,
     buffer: Vec<u8>,
@@ -34,11 +35,11 @@ impl<R: HttpRequest> SizedRequest<R> {
 }
 
 impl<R> Write for SizedRequest<R> {
-    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
         self.buffer.write(data)
     }
 
-    fn flush(&mut self) -> io::Result<()> {
+    fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
 }

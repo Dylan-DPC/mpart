@@ -1,9 +1,3 @@
-//! Support for `multipart/form-data` bodies in [Nickel](https://nickel.rs).
-pub extern crate nickel;
-
-use self::hyper::header::ContentType;
-use self::nickel::hyper;
-
 pub use self::nickel::hyper::server::Request as HyperRequest;
 pub use self::nickel::Request as NickelRequest;
 

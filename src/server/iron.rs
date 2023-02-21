@@ -1,9 +1,3 @@
-//! Integration with the [Iron](https://github.com/iron/iron) framework, enabled with the `iron` feature (optional). Includes a `BeforeMiddleware` implementation.
-//!
-//! Not shown here: `impl `[`HttpRequest`](../trait.HttpRequest.html#implementors)` for
-//! iron::Request`.
-
-use iron::headers::ContentType;
 use iron::mime::{Mime, SubLevel, TopLevel};
 use iron::request::{Body as IronBody, Request as IronRequest};
 use iron::typemap::Key;
