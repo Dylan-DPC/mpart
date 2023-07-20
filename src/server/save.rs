@@ -25,33 +25,7 @@ fn rand_filename() -> String {
     crate::random_alphanumeric(RANDOM_FILENAME_LEN)
 }
 
-macro_rules! try_start (
-    ($try:expr) => (
-        match $try {
-            Ok(val) => val,
-            Err(e) => return Error(e),
-        }
-    )
-);
 
-macro_rules! try_full (
-    ($try:expr) => {
-        match $try {
-            Full(full) => full,
-            other => return other,
-        }
-    }
-);
-
-macro_rules! try_partial (
-    ($try:expr) => {
-        match $try {
-            Full(full) => return Full(full.into()),
-            Partial(partial, reason) => (partial, reason),
-            Error(e) => return Error(e),
-        }
-    }
-);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TextPolicy {
@@ -280,8 +254,12 @@ where
     /// See `with_entries()` for more info.
     pub fn with_dir<P: Into<PathBuf>>(self, dir: P) -> EntriesSaveResult<M> {
         let dir = dir.into();
+        
 
-        try_start!(create_dir_all(&dir));
+        match create_dir_all(&dir) {
+            Ok(val) => val,
+            Err(e) => return Error(e),
+        }
 
         self.with_entries(Entries::new(SaveDir::Perm(dir)))
     }
@@ -416,7 +394,13 @@ where
     /// then the disk will never be touched.
     pub fn with_path<P: Into<PathBuf>>(&mut self, path: P) -> FieldSaveResult {
         let bytes = if self.text_policy != Ignore {
-            let (text, reason) = try_partial!(self.save_text());
+
+
+            let (text, reason) = match self.save_text() {
+                Full(full) => return Full(full.into()),
+                Partial(partial, reason) => (partial, reason),
+                Error(e) => return Error(e),
+            };
             match reason {
                 SizeLimit if !self.cmp_size_limit(text.len()) => text.into_bytes(),
                 Utf8Error(_) if self.text_policy != Force => text.into_bytes(),
@@ -426,7 +410,11 @@ where
             Vec::new()
         };
 
-        let (bytes, reason) = try_partial!(self.save_mem(bytes));
+        let (bytes, reason) = match self.save_mem(bytes){
+            Full(full) => return Full(full.into()),
+            Partial(partial, reason) => (partial, reason),
+            Error(e) => return Error(e),
+        };
 
         match reason {
             SizeLimit if !self.cmp_size_limit(bytes.len()) => (),
@@ -441,8 +429,12 @@ where
         };
 
         let data =
-            try_full!(try_write_all(&bytes, &mut file)
-                .map(move |size| SavedData::File(path, size as u64)));
+            
+        match try_write_all(&bytes, &mut file)
+                .map(move |size| SavedData::File(path, size as u64)) {
+            Full(full) => full,
+            other => return other,
+        };
 
         self.write_to(file)
             .map(move |written| data.add_size(written))
