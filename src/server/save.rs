@@ -26,15 +26,6 @@ fn rand_filename() -> String {
 }
 
 
-macro_rules! try_partial (
-    ($try:expr) => {
-        match $try {
-            Full(full) => return Full(full.into()),
-            Partial(partial, reason) => (partial, reason),
-            Error(e) => return Error(e),
-        }
-    }
-);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TextPolicy {
