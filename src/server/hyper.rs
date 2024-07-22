@@ -8,6 +8,7 @@ use hyper::method::Method;
 use hyper::net::Fresh;
 use hyper::server::{Handler, Request, Response};
 
+#[allow(clippy::module_name_repetitions)]
 pub use hyper::server::Request as HyperRequest;
 
 use hyper::mime::{Attr, Mime, SubLevel, TopLevel, Value};
@@ -43,7 +44,8 @@ where
     H: Handler,
     M: MultipartHandler,
 {
-    fn handle<'a, 'k>(&'a self, req: Request<'a, 'k>, res: Response<'a, Fresh>) {
+    #[allow(clippy::similar_names)]
+    fn handle<'a>(&'a self, req: Request<'a, '_>, res: Response<'a, Fresh>) {
         match Multipart::from_request(req) {
             Ok(multi) => self.multipart.handle_multipart(multi, res),
             Err(req) => self.normal.handle(req, res),
@@ -57,21 +59,21 @@ where
 /// and subsequently static functions.
 pub trait MultipartHandler: Send + Sync {
     /// Generate a response from this multipart request.
-    fn handle_multipart<'a, 'k>(
+    fn handle_multipart<'a>(
         &self,
-        multipart: Multipart<Request<'a, 'k>>,
+        multipart: Multipart<Request<'a, '_>>,
         response: Response<'a, Fresh>,
     );
 }
 
 impl<F> MultipartHandler for F
 where
-    F: Fn(Multipart<Request<'_,'_ >>, Response<'_, Fresh>),
+    F: Fn(Multipart<Request<'_, '_>>, Response<'_, Fresh>),
     F: Send + Sync,
 {
-    fn handle_multipart<'a, 'k>(
+    fn handle_multipart<'a>(
         &self,
-        multipart: Multipart<Request<'a, 'k>>,
+        multipart: Multipart<Request<'a, '_>>,
         response: Response<'a, Fresh>,
     ) {
         (*self)(multipart, response);
@@ -88,20 +90,16 @@ impl<'a, 'b> HttpRequest for HyperRequest<'a, 'b> {
 
         self.headers.get::<ContentType>().and_then(|ct| {
             let ContentType(ref mime) = *ct;
-            let params = match *mime {
-                Mime(TopLevel::Multipart, SubLevel::FormData, ref params) => params,
-                _ => return None,
+            let Mime(TopLevel::Multipart, SubLevel::FormData, ref params) = *mime else {
+                return None;
             };
 
             params
                 .iter()
-                .find(|&&(ref name, _)| match *name {
-                    Attr::Boundary => true,
-                    _ => false,
-                })
-                .and_then(|&(_, ref val)| match *val {
+                .find(|&(name, _)| matches!(*name, Attr::Boundary))
+                .and_then(|(_, val)| match *val {
                     Value::Ext(ref val) => Some(&**val),
-                    _ => None,
+                    Value::Utf8 => None,
                 })
         })
     }
@@ -121,20 +119,16 @@ impl<'r, 'a, 'b> HttpRequest for &'r mut HyperRequest<'a, 'b> {
 
         self.headers.get::<ContentType>().and_then(|ct| {
             let ContentType(ref mime) = *ct;
-            let params = match *mime {
-                Mime(TopLevel::Multipart, SubLevel::FormData, ref params) => params,
-                _ => return None,
+            let Mime(TopLevel::Multipart, SubLevel::FormData, ref params) = *mime else {
+                return None;
             };
 
             params
                 .iter()
-                .find(|&&(ref name, _)| match *name {
-                    Attr::Boundary => true,
-                    _ => false,
-                })
-                .and_then(|&(_, ref val)| match *val {
+                .find(|&(name, _)| matches!(*name, Attr::Boundary))
+                .and_then(|(_, val)| match *val {
                     Value::Ext(ref val) => Some(&**val),
-                    _ => None,
+                    Value::Utf8 => None,
                 })
         })
     }

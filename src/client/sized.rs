@@ -17,6 +17,7 @@ use std::io::prelude::*;
 ///
 /// [chunked-example]: http://en.wikipedia.org/wiki/Chunked_transfer_encoding#Example
 
+#[allow(clippy::module_name_repetitions)]
 pub struct SizedRequest<R> {
     inner: R,
     buffer: Vec<u8>,

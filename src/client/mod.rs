@@ -24,7 +24,7 @@ const BOUNDARY_LEN: usize = 16;
 macro_rules! map_self {
     ($selff:expr, $try:expr) => {
         match $try {
-            Ok(_) => Ok($selff),
+            Ok(()) => Ok($selff),
             Err(err) => Err(err.into()),
         }
     };
@@ -42,8 +42,9 @@ pub struct Multipart<S> {
 impl Multipart<()> {
     /// Create a new `Multipart` to wrap a request.
     ///
-    /// ## Returns Error
+    /// # Errors
     /// If `req.open_stream()` returns an error.
+
     pub fn from_request<R: HttpRequest>(req: R) -> Result<Multipart<R::Stream>, R::Error> {
         let (boundary, stream) = open_stream(req, None)?;
 
@@ -126,11 +127,12 @@ impl<S: HttpStream> Multipart<S> {
     }
 
     /// Finalize the request and return the response from the server, or the last error if set.
+    #[allow(clippy::missing_errors_doc, clippy::redundant_closure_for_method_calls)]
     pub fn send(self) -> Result<S::Response, S::Error> {
         self.writer
             .finish()
             .map_err(io::Error::into)
-            .and_then(|body| body.finish())
+            .and_then(|body: S| body.finish())
     }
 }
 
@@ -139,6 +141,7 @@ where
     <R::Stream as HttpStream>::Error: From<R::Error>,
 {
     /// Create a new `Multipart` using the `SizedRequest` wrapper around `req`.
+    #[allow(clippy::missing_errors_doc)]
     pub fn from_request_sized(req: R) -> Result<Self, R::Error> {
         Multipart::from_request(SizedRequest::from_request(req))
     }
@@ -161,6 +164,7 @@ pub trait HttpRequest {
     fn apply_headers(&mut self, boundary: &str, content_len: Option<u64>) -> bool;
 
     /// Open the request stream and return it or any error otherwise.
+    #[allow(clippy::missing_errors_doc)]
     fn open_stream(self) -> Result<Self::Stream, Self::Error>;
 }
 
@@ -175,6 +179,7 @@ pub trait HttpStream: Write {
     type Error: From<io::Error> + From<<Self::Request as HttpRequest>::Error>;
 
     /// Finalize and close the stream and return the response object, or any error otherwise.
+    #[allow(clippy::missing_errors_doc)]
     fn finish(self) -> Result<Self::Response, Self::Error>;
 }
 
@@ -237,8 +242,8 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
     }
 
     fn write_text(&mut self, name: &str, text: &str) -> io::Result<()> {
-            self.write_field_headers(name, None, None)?;
-            self.inner.write_all(text.as_bytes())
+        self.write_field_headers(name, None, None)?;
+        self.inner.write_all(text.as_bytes())
     }
 
     fn write_file(&mut self, name: &str, path: &Path) -> io::Result<()> {
@@ -257,9 +262,9 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
         // This is necessary to make sure it is interpreted as a file on the server end.
         let content_type = Some(content_type.unwrap_or(mime::APPLICATION_OCTET_STREAM));
 
-            self.write_field_headers(name, filename, content_type)?;
-            io::copy(stream, &mut self.inner)?;
-            Ok(())
+        self.write_field_headers(name, filename, content_type)?;
+        io::copy(stream, &mut self.inner)?;
+        Ok(())
     }
 
     fn write_field_headers(
@@ -268,15 +273,20 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
         filename: Option<&str>,
         content_type: Option<Mime>,
     ) -> io::Result<()> {
-            // Write the first boundary, or the boundary for the previous field.
-            self.write_boundary()?;
-            self.data_written = true;
-            write!(self.inner, "Content-Disposition: form-data; name=\"{}\"", name)?;
-            filename.map(|filename| write!(self.inner, "; filename=\"{}\"", filename))
-                .unwrap_or(Ok(()))?;
-            content_type.map(|content_type| write!(self.inner, "\r\nContent-Type: {}", content_type))
-                .unwrap_or(Ok(()))?;
-            self.inner.write_all(b"\r\n\r\n")
+        // Write the first boundary, or the boundary for the previous field.
+        self.write_boundary()?;
+        self.data_written = true;
+        write!(
+            self.inner,
+            "Content-Disposition: form-data; name=\"{name}\""
+        )?;
+        filename.map_or(Ok(()), |filename| {
+            write!(self.inner, "; filename=\"{filename}\"")
+        })?;
+        content_type.map_or(Ok(()), |content_type| {
+            write!(self.inner, "\r\nContent-Type: {content_type}")
+        })?;
+        self.inner.write_all(b"\r\n\r\n")
     }
 
     fn finish(mut self) -> io::Result<W> {
@@ -293,7 +303,7 @@ impl<'a, W: Write> MultipartWriter<'a, W> {
 }
 
 fn mime_filename(path: &Path) -> (Mime, Option<&str>) {
-    let content_type = mummer::from_path(path);
+    let content_type = mime_guess::from_path(path);
     let filename = opt_filename(path);
     (content_type.first_or_octet_stream(), filename)
 }

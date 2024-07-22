@@ -65,6 +65,7 @@ impl HttpStream for Request<Streaming> {
 }
 
 /// Create a `Content-Type: multipart/form-data;boundary={bound}`
+#[must_use]
 pub fn content_type(bound: &str) -> ContentType {
     ContentType(multipart_mime(bound))
 }

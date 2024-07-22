@@ -1,3 +1,4 @@
+#[allow(clippy::module_name_repetitions)]
 pub use tiny_http::Request as TinyHttpRequest;
 
 use super::HttpRequest;
@@ -14,8 +15,8 @@ impl<'r> HttpRequest for &'r mut TinyHttpRequest {
             .headers()
             .iter()
             .find(|header| header.field.equiv("Content-Type"))?
-        .value
-        .as_str();
+            .value
+            .as_str();
         let start = content_type.find(BOUNDARY)? + BOUNDARY.len();
         let end = content_type[start..]
             .find(';')

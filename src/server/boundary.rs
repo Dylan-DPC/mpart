@@ -1,16 +1,15 @@
-
 //! Boundary parsing for `multipart` requests.
 
 use ::safemem;
 
-use reducks_buffer::policy::MinBuffered;
-use reducks_buffer::BufReader;
+use buf_redux::policy::MinBuffered;
+use buf_redux::BufReader;
 
 use std::cmp;
 use std::io;
 use std::io::prelude::*;
 
-use self::State::*;
+use self::State::{AtEnd, BoundaryRead, Searching};
 
 pub const MIN_BUF_SIZE: usize = 1024;
 
@@ -23,6 +22,7 @@ enum State {
 
 /// A struct implementing `Read` and `BufRead` that will yield bytes until it sees a given sequence.
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct BoundaryReader<R> {
     source: BufReader<R, MinBuffered>,
     boundary: Vec<u8>,
@@ -117,6 +117,7 @@ where
         self.source.policy_mut().0 = min_buf_size;
     }
 
+    #[allow(clippy::missing_errors_doc)]
     pub fn consume_boundary(&mut self) -> io::Result<bool> {
         if self.state == AtEnd {
             return Ok(false);
@@ -198,8 +199,6 @@ where
         );
 
         self.source.consume(consume_amt);
-
-        if cfg!(debug_assertions) {}
 
         self.search_idx = 0;
 
@@ -283,7 +282,7 @@ mod test {
     fn test_boundary() {
         crate::init_log();
 
-       log::debug!("Testing boundary (no split)");
+        log::debug!("Testing boundary (no split)");
 
         let src = &mut TEST_VAL.as_bytes();
         let mut reader = BoundaryReader::from_reader(src, BOUNDARY);
@@ -329,13 +328,13 @@ mod test {
     fn test_split_boundary() {
         crate::init_log();
 
-       log::debug!("Testing boundary (split)");
+        log::debug!("Testing boundary (split)");
 
         let mut buf = String::new();
 
         // Substitute for `.step_by()` being unstable.
         for split_at in 0..TEST_VAL.len() {
-           log::debug!("Testing split at: {}", split_at);
+            log::debug!("Testing split at: {}", split_at);
 
             let src = SplitReader::split(TEST_VAL.as_bytes(), split_at);
             let mut reader = BoundaryReader::from_reader(src, BOUNDARY);
@@ -346,31 +345,31 @@ mod test {
     fn test_boundary_reader<R: Read>(reader: &mut BoundaryReader<R>, buf: &mut String) {
         buf.clear();
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert!(buf.is_empty(), "Buffer not empty: {:?}", buf);
         buf.clear();
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         reader.consume_boundary().unwrap();
 
-       log::debug!("Read 2");
+        log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "dashed-value-1");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         reader.consume_boundary().unwrap();
 
-       log::debug!("Read 3");
+        log::debug!("Read 3");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "dashed-value-2");
         buf.clear();
 
-       log::debug!("Consume 3");
+        log::debug!("Consume 3");
         reader.consume_boundary().unwrap();
 
-       log::debug!("Read 4");
+        log::debug!("Read 4");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -385,15 +384,15 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), false);
     }
 
@@ -408,18 +407,18 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "asdf1234\r\n");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-       log::debug!("Read 2 (empty)");
+        log::debug!("Read 2 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -436,10 +435,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
 
         // Repro for https://github.com/abonander/multipart/issues/93
         // These two reads should produce the same buffer
@@ -451,18 +450,18 @@ mod test {
         assert_eq!(buf, "asdf1234\r\n");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 2");
+        log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678");
         buf.clear();
 
-       log::debug!("Consume 3");
+        log::debug!("Consume 3");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-       log::debug!("Read 3 (empty)");
+        log::debug!("Read 3 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -480,10 +479,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
 
         // same as above
         let buf1 = reader.read_to_boundary().unwrap().to_owned();
@@ -494,18 +493,18 @@ mod test {
         assert_eq!(buf, "asdf1234\n\n");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 2");
+        log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678");
         buf.clear();
 
-       log::debug!("Consume 3");
+        log::debug!("Consume 3");
         assert_eq!(reader.consume_boundary().unwrap(), false);
 
-       log::debug!("Read 3 (empty)");
+        log::debug!("Read 3 (empty)");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "");
     }
@@ -523,10 +522,10 @@ mod test {
         let ref mut buf = String::new();
         let mut reader = BoundaryReader::from_reader(&mut body, BOUNDARY);
 
-       log::debug!("Consume 1");
+        log::debug!("Consume 1");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 1");
+        log::debug!("Read 1");
 
         // same as above
         let buf1 = reader.read_to_boundary().unwrap().to_owned();
@@ -537,15 +536,15 @@ mod test {
         assert_eq!(buf, "asdf1234\n\n");
         buf.clear();
 
-       log::debug!("Consume 2");
+        log::debug!("Consume 2");
         assert_eq!(reader.consume_boundary().unwrap(), true);
 
-       log::debug!("Read 2");
+        log::debug!("Read 2");
         let _ = reader.read_to_string(buf).unwrap();
         assert_eq!(buf, "hjkl5678  ");
         buf.clear();
 
-       log::debug!("Consume 3 - expecting error");
+        log::debug!("Consume 3 - expecting error");
         reader.consume_boundary().unwrap_err();
     }
 
@@ -578,6 +577,4 @@ mod test {
 
         assert_eq!(reader.consume_boundary().unwrap(), false);
     }
-
-   }
-
+}
