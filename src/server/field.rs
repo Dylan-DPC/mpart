@@ -1,12 +1,11 @@
-
 //! `multipart` field header parsing.
 use mime::Mime;
 
-use std::io::{self, BufRead, Read};
-use std::{fmt, str};
-use std::sync::Arc;
+use self::ReadEntryResult::{End, Entry, Error};
 use httparse::{self, Error as HttparseError, Header, Status, EMPTY_HEADER};
-use self::ReadEntryResult::*;
+use std::io::{self, BufRead, Read};
+use std::sync::Arc;
+use std::{fmt, str};
 
 use super::save::SaveBuilder;
 use thiserror::Error;
@@ -100,6 +99,7 @@ fn copy_headers<'h, 'b: 'h>(
 /// Everything in this struct are values from the client and should be considered **untrustworthy**.
 /// This crate makes no effort to validate or sanitize any client inputs.
 #[derive(Clone, Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct FieldHeaders {
     /// The field's name from the form.
     pub name: Arc<str>,
@@ -124,7 +124,6 @@ impl FieldHeaders {
     }
 
     fn parse(headers: &[StrHeader<'_>]) -> Result<FieldHeaders, ParseHeaderError> {
-
         let cont_disp = ContentDisp::parse_required(headers)?;
 
         Ok(FieldHeaders {
@@ -145,9 +144,7 @@ struct ContentDisp {
 
 impl ContentDisp {
     fn parse_required(headers: &[StrHeader<'_>]) -> Result<ContentDisp, ParseHeaderError> {
-        let header = if let Some(header) = find_header(headers, "Content-Disposition") {
-            header
-        } else {
+        let Some(header) = find_header(headers, "Content-Disposition") else {
             return Err(ParseHeaderError::MissingContentDisposition(
                 DisplayHeaders(headers).to_string(),
             ));
@@ -205,6 +202,7 @@ fn parse_content_type(headers: &[StrHeader<'_>]) -> Result<Option<Mime>, ParseHe
 
 /// A field in a multipart request with its associated headers and data.
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct MultipartField<M: ReadEntry> {
     /// The headers for this field, including the name, filename, and content-type, if provided.
     ///
@@ -243,6 +241,7 @@ impl<M: ReadEntry> MultipartField<M> {
     ///
     /// Returns `Ok(Some(self))` if another entry was read, `Ok(None)` if the end of the body was
     /// reached, and `Err(e)` for any errors that occur.
+    #[allow(clippy::missing_errors_doc)]
     pub fn next_entry_inplace(&mut self) -> io::Result<Option<&mut Self>>
     where
         for<'a> &'a mut M: ReadEntry,
@@ -290,6 +289,7 @@ where
     }
 
     /// Take the inner `Multipart` or `&mut Multipart`
+    #[allow(clippy::missing_panics_doc)]
     pub fn into_inner(self) -> M {
         self.inner.expect(DATA_INNER_ERR)
     }
@@ -301,7 +301,7 @@ where
     ///
     /// This value is reset between fields.
     pub fn set_min_buf_size(&mut self, min_buf_size: usize) {
-        self.inner_mut().set_min_buf_size(min_buf_size)
+        self.inner_mut().set_min_buf_size(min_buf_size);
     }
 
     fn inner_mut(&mut self) -> &mut M {
@@ -332,7 +332,7 @@ impl<M: ReadEntry> BufRead for MultipartData<M> {
     }
 
     fn consume(&mut self, amt: usize) {
-        self.inner_mut().source_mut().consume(amt)
+        self.inner_mut().source_mut().consume(amt);
     }
 }
 
@@ -381,31 +381,31 @@ pub trait ReadEntry: PrivReadEntry + Sized {
         log::debug!("ReadEntry::read_entry()");
 
         if self.consume_boundary().is_err() {
-            return ReadEntryResult::End(self)
-        } 
+            return ReadEntryResult::End(self);
+        }
 
         match self.read_headers() {
             Ok(headers) => {
-        if let Some(ct) = headers.content_type.as_ref() {
-            if ct.type_() == mime::MULTIPART {
-                // fields of this type are sent by (supposedly) no known clients
-                // (https://tools.ietf.org/html/rfc7578#appendix-A) so I'd be fascinated
-                // to hear about any in the wild
-                log::info!(
-                    "Found nested multipart field: {:?}:\r\n\
+                if let Some(ct) = headers.content_type.as_ref() {
+                    if ct.type_() == mime::MULTIPART {
+                        // fields of this type are sent by (supposedly) no known clients
+                        // (https://tools.ietf.org/html/rfc7578#appendix-A) so I'd be fascinated
+                        // to hear about any in the wild
+                        log::info!(
+                            "Found nested multipart field: {:?}:\r\n\
                      Please report this client's User-Agent and any other available details \
                      at https://github.com/abonander/multipart/issues/56",
-                   headers 
-                );
-            }
-        }
+                            headers
+                        );
+                    }
+                }
 
-        Entry(MultipartField {
-            headers,
-            data: MultipartData { inner: Some(self) },
-        })
-            },
-            Err(e) => ReadEntryResult::Error(self, e)
+                Entry(MultipartField {
+                    headers,
+                    data: MultipartData { inner: Some(self) },
+                })
+            }
+            Err(e) => ReadEntryResult::Error(self, e),
         }
     }
     /// Equivalent to `read_entry()` but takes `&mut self`
@@ -426,13 +426,19 @@ pub trait PrivReadEntry {
 
     /// Consume the next boundary.
     /// Returns `true` if a field should follow, `false` otherwise.
+    ///
+    /// # Errors
+    ///
+    /// Will throw `error` if there is error in consuming next boundary
     fn consume_boundary(&mut self) -> io::Result<bool>;
 
+    #[allow(clippy::missing_errors_doc)]
     fn read_headers(&mut self) -> Result<FieldHeaders, io::Error> {
         FieldHeaders::read_from(self.source_mut())
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
+    #[allow(clippy::missing_errors_doc)]
     fn read_to_string(&mut self) -> io::Result<String> {
         let mut buf = String::new();
 
@@ -451,7 +457,7 @@ impl<'a, M: ReadEntry> PrivReadEntry for &'a mut M {
     }
 
     fn set_min_buf_size(&mut self, min_buf_size: usize) {
-        (**self).set_min_buf_size(min_buf_size)
+        (**self).set_min_buf_size(min_buf_size);
     }
 
     fn consume_boundary(&mut self) -> io::Result<bool> {
@@ -476,6 +482,7 @@ impl<M: ReadEntry, Entry> ReadEntryResult<M, Entry> {
     /// * `Entry(entry) -> Ok(Some(entry))`
     /// * `End(_) -> Ok(None)`
     /// * `Error(_, err) -> Err(err)`
+    #[allow(clippy::missing_errors_doc)]
     pub fn into_result(self) -> io::Result<Option<Entry>> {
         match self {
             ReadEntryResult::Entry(entry) => Ok(Some(entry)),
@@ -501,11 +508,12 @@ impl<M: ReadEntry, Entry> ReadEntryResult<M, Entry> {
     /// Attempt to unwrap `Entry`, panicking if this is `End` or `Error`.
     /// If this is `End`, panics with `end_msg`; if `Error`, panics with `err_msg`
     /// as well as the error's message.
+    #[allow(clippy::missing_panics_doc)]
     pub fn expect_alt(self, end_msg: &str, err_msg: &str) -> Entry {
         match self {
             Entry(entry) => entry,
             End(_) => panic!("{}", end_msg),
-            Error(_, err) => panic!("{}: {:?}", err_msg, err),
+            Error(_, err) => panic!("{err_msg}: {err:?}"),
         }
     }
 
@@ -516,11 +524,13 @@ impl<M: ReadEntry, Entry> ReadEntryResult<M, Entry> {
 
     /// Attempt to unwrap as `Option<Entry>`, panicking in the `Error` case
     /// with the given message as well as the error's message.
+    ///
+    #[allow(clippy::missing_panics_doc)]
     pub fn expect_opt(self, msg: &str) -> Option<Entry> {
         match self {
             Entry(entry) => Some(entry),
             End(_) => None,
-            Error(_, err) => panic!("{}: {:?}", msg, err),
+            Error(_, err) => panic!("{msg}: {err:?}"),
         }
     }
 }

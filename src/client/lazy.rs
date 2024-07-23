@@ -1,15 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use mime::Mime;
+use std::borrow::Cow;
+use std::error::Error;
+use std::fs::File;
 use std::io::prelude::*;
 use std::io::Cursor;
-use std::borrow::Cow;
 use std::{fmt, io};
-use std::fs::File;
-use mummer::Mime;
-use std::error::Error;
 
 use super::{HttpRequest, HttpStream};
-
 
 macro_rules! try_lazy (
     ($field:expr, $try:expr) => (
@@ -27,13 +26,16 @@ macro_rules! try_lazy (
 );
 
 /// A `LazyError` wrapping `std::io::Error`.
+#[allow(clippy::module_name_repetitions)]
 pub type LazyIoError<'a> = LazyError<'a, io::Error>;
 
 /// `Result` type for `LazyIoError`.
+#[allow(clippy::module_name_repetitions)]
 pub type LazyIoResult<'a, T> = Result<T, LazyIoError<'a>>;
 
 /// An error for lazily written multipart requests, including the original error as well
 /// as the field which caused the error, if applicable.
+#[allow(clippy::manual_non_exhaustive, clippy::module_name_repetitions)]
 pub struct LazyError<'a, E> {
     /// The field that caused the error.
     /// If `None`, there was a problem opening the stream to write or finalizing the stream.
@@ -71,9 +73,9 @@ impl<'a, E> LazyError<'a, E> {
 }
 
 /// Take `self.error`, discarding `self.field_name`.
-impl<'a> Into<io::Error> for LazyError<'a, io::Error> {
-    fn into(self) -> io::Error {
-        self.error
+impl<'a> From<LazyError<'a, io::Error>> for io::Error {
+    fn from(val: LazyError<'a, io::Error>) -> Self {
+        val.error
     }
 }
 
@@ -122,8 +124,9 @@ pub struct Multipart<'n, 'd> {
 
 impl<'n, 'd> Multipart<'n, 'd> {
     /// Initialize a new lazy dynamic request.
+    #[must_use]
     pub fn new() -> Self {
-        Default::default()
+        Multipart::default()
     }
 
     /// Add a text field to this request.
@@ -174,7 +177,7 @@ impl<'n, 'd> Multipart<'n, 'd> {
             name: name.into(),
             data: Data::Stream(Stream {
                 content_type: mime.unwrap_or(mime::APPLICATION_OCTET_STREAM),
-                filename: filename.map(|f| f.into()),
+                filename: filename.map(|f| std::convert::Into::into(f)),
                 stream: Box::new(stream),
             }),
         });
@@ -186,6 +189,7 @@ impl<'n, 'd> Multipart<'n, 'd> {
     /// request, returning the response if successful, or the first error encountered.
     ///
     /// If any files were added by path they will now be opened for reading.
+    #[allow(clippy::missing_errors_doc)]
     pub fn send<R: HttpRequest>(
         &mut self,
         mut req: R,
@@ -206,6 +210,7 @@ impl<'n, 'd> Multipart<'n, 'd> {
     ///
     /// During this step, if any files were added by path then they will be opened for reading
     /// and their length measured.
+    #[allow(clippy::missing_errors_doc)]
     pub fn prepare(&mut self) -> LazyIoResult<'n, PreparedFields<'d>> {
         PreparedFields::from_fields(&mut self.fields)
     }
@@ -226,8 +231,8 @@ enum Data<'n, 'd> {
 impl<'n, 'd> fmt::Debug for Data<'n, 'd> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Data::Text(ref text) => write!(f, "Data::Text({:?})", text),
-            Data::File(ref path) => write!(f, "Data::File({:?})", path),
+            Data::Text(ref text) => write!(f, "Data::Text({text:?})"),
+            Data::File(ref path) => write!(f, "Data::File({path:?})"),
             Data::Stream(_) => f.write_str("Data::Stream(Box<Read>)"),
         }
     }
@@ -289,7 +294,7 @@ impl<'d> PreparedFields<'d> {
                         &field.name,
                         &boundary,
                         &stream.content_type,
-                        stream.filename.as_ref().map(|f| &**f),
+                        stream.filename.as_deref(),
                         stream.stream,
                     ));
                 }
@@ -315,11 +320,13 @@ impl<'d> PreparedFields<'d> {
 
     /// Get the content-length value for this set of fields, if applicable (all fields are sized,
     /// i.e. not generic streams).
+    #[must_use]
     pub fn content_len(&self) -> Option<u64> {
         self.content_len
     }
 
     /// Get the boundary that was used to serialize the request.
+    #[must_use]
     pub fn boundary(&self) -> &str {
         let boundary = self.end_boundary.get_ref();
 
@@ -370,7 +377,7 @@ impl<'d> PreparedField<'d> {
         path: &Path,
         boundary: &str,
     ) -> Result<(Self, u64), LazyIoError<'n>> {
-        let (content_type, filename) = super::mime_filename(&path);
+        let (content_type, filename) = super::mime_filename(path);
 
         let file = try_lazy!(name, File::open(path));
         let content_len = try_lazy!(name, file.metadata()).len();
@@ -393,16 +400,15 @@ impl<'d> PreparedField<'d> {
 
         write!(
             header,
-            "{}\r\nContent-Disposition: form-data; name=\"{}\"",
-            boundary, name
+            "{boundary}\r\nContent-Disposition: form-data; name=\"{name}\""
         )
         .unwrap();
 
         if let Some(filename) = filename {
-            write!(header, "; filename=\"{}\"", filename).unwrap();
+            write!(header, "; filename=\"{filename}\"").unwrap();
         }
 
-        write!(header, "\r\nContent-Type: {}\r\n\r\n", content_type).unwrap();
+        write!(header, "\r\nContent-Type: {content_type}\r\n\r\n").unwrap();
 
         PreparedField {
             header: Cursor::new(header),
@@ -415,10 +421,10 @@ impl<'d> Read for PreparedField<'d> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         log::debug!("PreparedField::read()");
 
-        if !cursor_at_end(&self.header) {
-            self.header.read(buf)
-        } else {
+        if cursor_at_end(&self.header) {
             self.stream.read(buf)
+        } else {
+            self.header.read(buf)
         }
     }
 }
@@ -484,6 +490,7 @@ mod hyper {
         ///
         /// Supplies the fields in the body, optionally setting the content-length header if
         /// applicable (all added fields were text or files, i.e. no streams).
+        #[allow(clippy::missing_errors_doc)]
         pub fn client_request<U: IntoUrl>(
             &mut self,
             client: &Client,
@@ -498,7 +505,11 @@ mod hyper {
         ///
         /// Note that the body, and the `ContentType` and `ContentLength` headers will be
         /// overwritten, either by this method or by Hyper.
-        pub fn client_request_mut<U: IntoUrl, F: FnOnce(RequestBuilder<'_>) -> RequestBuilder<'_>>(
+        #[allow(clippy::missing_errors_doc)]
+        pub fn client_request_mut<
+            U: IntoUrl,
+            F: FnOnce(RequestBuilder<'_>) -> RequestBuilder<'_>,
+        >(
             &mut self,
             client: &Client,
             url: U,

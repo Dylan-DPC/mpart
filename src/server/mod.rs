@@ -37,11 +37,16 @@ impl Multipart<()> {
     /// If the given `HttpRequest` is a multipart/form-data POST request,
     /// return the request body wrapped in the multipart reader. Otherwise,
     /// returns the original request.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if the `req` is not in proper multipart format
+    ///
     pub fn from_request<R: HttpRequest>(req: R) -> Result<Multipart<R::Body>, R> {
         //FIXME: move `map` expr to `Some` arm when nonlexical borrow scopes land.
-        let boundary = match req.multipart_boundary().map(String::from) {
-            Some(boundary) => boundary,
-            None => return Err(req),
+
+        let Some(boundary) = req.multipart_boundary().map(String::from) else {
+            return Err(req);
         };
 
         Ok(Multipart::with_body(req.body(), boundary))
@@ -74,6 +79,10 @@ impl<R: Read> Multipart<R> {
     /// ## Warning: Risk of Data Loss
     /// If the previously returned entry had contents of type `MultipartField::File`,
     /// calling this again will discard any unread contents of that entry.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is error in reading `entry`
     pub fn read_entry(&mut self) -> io::Result<Option<MultipartField<&mut Self>>> {
         self.read_entry_mut().into_result()
     }
@@ -90,6 +99,10 @@ impl<R: Read> Multipart<R> {
     /// from `next()` borrows the iterator for a bound lifetime).
     ///
     /// Returns `Ok(())` when all fields have been read, or the first error.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is some error in reading perticular `field`
     pub fn foreach_entry<F>(&mut self, mut foreach: F) -> io::Result<()>
     where
         F: FnMut(MultipartField<&mut Self>),
@@ -119,7 +132,7 @@ impl<R: Read> PrivReadEntry for Multipart<R> {
     }
 
     fn set_min_buf_size(&mut self, min_buf_size: usize) {
-        self.reader.set_min_buf_size(min_buf_size)
+        self.reader.set_min_buf_size(min_buf_size);
     }
 
     /// Consume the next boundary.

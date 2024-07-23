@@ -1,6 +1,6 @@
 //! Utilities for saving request entries to the filesystem.
 
-pub use reducks_buffer::BufReader;
+pub use buf_redux::BufReader;
 pub use tempfile::TempDir;
 
 use std::collections::HashMap;
@@ -15,17 +15,15 @@ use crate::server::field::{
     FieldHeaders, MultipartData, MultipartField, ReadEntry, ReadEntryResult,
 };
 
-use self::PartialReason::*;
-use self::SaveResult::*;
-use self::TextPolicy::*;
+use self::PartialReason::{IoError, SizeLimit, Utf8Error};
+use self::SaveResult::{Error, Full, Partial};
+use self::TextPolicy::{Force, Ignore};
 
 const RANDOM_FILENAME_LEN: usize = 12;
 
 fn rand_filename() -> String {
     crate::random_alphanumeric(RANDOM_FILENAME_LEN)
 }
-
-
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TextPolicy {
@@ -99,6 +97,7 @@ enum TextPolicy {
 /// If it is truly necessary, you should sanitize user input such that it cannot cause a path to be
 /// misinterpreted by the OS. Such functionality is outside the scope of this crate.
 #[must_use = "nothing saved to the filesystem yet"]
+#[allow(clippy::module_name_repetitions)]
 pub struct SaveBuilder<S> {
     savable: S,
     open_opts: OpenOptions,
@@ -254,7 +253,6 @@ where
     /// See `with_entries()` for more info.
     pub fn with_dir<P: Into<PathBuf>>(self, dir: P) -> EntriesSaveResult<M> {
         let dir = dir.into();
-        
 
         match create_dir_all(&dir) {
             Ok(val) => val,
@@ -393,9 +391,9 @@ where
     /// If `size_limit` is set and less than or equal to `memory_threshold`,
     /// then the disk will never be touched.
     pub fn with_path<P: Into<PathBuf>>(&mut self, path: P) -> FieldSaveResult {
-        let bytes = if self.text_policy != Ignore {
-
-
+        let bytes = if self.text_policy == Ignore {
+            Vec::new()
+        } else {
             let (text, reason) = match self.save_text() {
                 Full(full) => return Full(full.into()),
                 Partial(partial, reason) => (partial, reason),
@@ -406,11 +404,9 @@ where
                 Utf8Error(_) if self.text_policy != Force => text.into_bytes(),
                 other => return Partial(text.into(), other),
             }
-        } else {
-            Vec::new()
         };
 
-        let (bytes, reason) = match self.save_mem(bytes){
+        let (bytes, reason) = match self.save_mem(bytes) {
             Full(full) => return Full(full.into()),
             Partial(partial, reason) => (partial, reason),
             Error(e) => return Error(e),
@@ -423,15 +419,14 @@ where
 
         let path = path.into();
 
-        let mut file = match create_dir_all(&path).and_then(|_| self.open_opts.open(&path)) {
+        let mut file = match create_dir_all(&path).and_then(|()| self.open_opts.open(&path)) {
             Ok(file) => file,
             Err(e) => return Error(e),
         };
 
-        let data =
-            
-        match try_write_all(&bytes, &mut file)
-                .map(move |size| SavedData::File(path, size as u64)) {
+        let data = match try_write_all(&bytes, &mut file)
+            .map(move |size| SavedData::File(path, size as u64))
+        {
             Full(full) => full,
             other => return other,
         };
@@ -470,10 +465,10 @@ where
             Full(_) => Full(bytes),
             Partial(_, reason) => Partial(bytes, reason),
             Error(e) => {
-                if !bytes.is_empty() {
-                    Partial(bytes, e.into())
-                } else {
+                if bytes.is_empty() {
                     Error(e)
+                } else {
+                    Partial(bytes, e.into())
                 }
             }
         }
@@ -549,8 +544,12 @@ impl SavedData {
     /// Get an adapter for this data which implements `Read`.
     ///
     /// If the data is in a file, the file is opened in read-only mode.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is error in opening the `file`
     pub fn readable(&self) -> io::Result<DataReader<'_>> {
-        use self::SavedData::*;
+        use self::SavedData::{Bytes, File, Text};
 
         match *self {
             Text(ref text) => Ok(DataReader::Bytes(text.as_ref())),
@@ -563,8 +562,9 @@ impl SavedData {
     ///
     /// #### Note
     /// The size on disk may not match the size of the file if it is externally modified.
+    #[must_use]
     pub fn size(&self) -> u64 {
-        use self::SavedData::*;
+        use self::SavedData::{Bytes, File, Text};
 
         match *self {
             Text(ref text) => text.len() as u64,
@@ -574,8 +574,9 @@ impl SavedData {
     }
 
     /// Returns `true` if the data is known to be in memory (`Text | Bytes`)
+    #[must_use]
     pub fn is_memory(&self) -> bool {
-        use self::SavedData::*;
+        use self::SavedData::{Bytes, File, Text};
 
         match *self {
             Text(_) | Bytes(_) => true,
@@ -615,7 +616,7 @@ pub enum DataReader<'a> {
 
 impl<'a> Read for DataReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        use self::DataReader::*;
+        use self::DataReader::{Bytes, File};
 
         match *self {
             Bytes(ref mut bytes) => bytes.read(buf),
@@ -626,7 +627,7 @@ impl<'a> Read for DataReader<'a> {
 
 impl<'a> BufRead for DataReader<'a> {
     fn fill_buf(&mut self) -> io::Result<&[u8]> {
-        use self::DataReader::*;
+        use self::DataReader::{Bytes, File};
 
         match *self {
             Bytes(ref mut bytes) => bytes.fill_buf(),
@@ -635,7 +636,7 @@ impl<'a> BufRead for DataReader<'a> {
     }
 
     fn consume(&mut self, amt: usize) {
-        use self::DataReader::*;
+        use self::DataReader::{Bytes, File};
 
         match *self {
             Bytes(ref mut bytes) => bytes.consume(amt),
@@ -663,6 +664,7 @@ pub struct Entries {
 
 impl Entries {
     /// Create a new `Entries` with the given `SaveDir`
+    #[must_use]
     pub fn new(save_dir: SaveDir) -> Self {
         Entries {
             fields: HashMap::new(),
@@ -672,6 +674,7 @@ impl Entries {
     }
 
     /// Returns `true` if `fields` is empty, `false` otherwise.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
@@ -683,11 +686,13 @@ impl Entries {
     /// ## Note
     /// This will be incorrect if `fields` is modified externally. Call `recount_fields()`
     /// to get the correct count.
+    #[must_use]
     pub fn fields_count(&self) -> u32 {
         self.fields_count
     }
 
     /// Sum the number of fields in this `Entries` and then return the updated value.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn recount_fields(&mut self) -> u32 {
         let fields_count = self.fields.values().map(Vec::len).sum();
         // saturating cast
@@ -696,7 +701,7 @@ impl Entries {
     }
 
     fn push_field(&mut self, mut headers: FieldHeaders, data: SavedData) {
-        use std::collections::hash_map::Entry::*;
+        use std::collections::hash_map::Entry::{Occupied, Vacant};
 
         match self.fields.entry(headers.name.clone()) {
             Vacant(vacant) => {
@@ -713,6 +718,10 @@ impl Entries {
     }
 
     /// Print all fields and their contents to stdout. Mostly for testing purposes.
+    ///
+    /// # Errors
+    ///
+    /// Will throw `Error` if there is error in printing all the fields
     pub fn print_debug(&self) -> io::Result<()> {
         let stdout = io::stdout();
         let stdout_lock = stdout.lock();
@@ -720,6 +729,10 @@ impl Entries {
     }
 
     /// Write all fields and their contents to the given output. Mostly for testing purposes.
+    ///
+    /// # Errors
+    ///
+    /// Will throw `Error` if there is error in writing fields to output
     pub fn write_debug<W: Write>(&self, mut writer: W) -> io::Result<()> {
         for (name, entries) in &self.fields {
             writeln!(writer, "Field {:?} has {} entries:", name, entries.len())?;
@@ -741,6 +754,7 @@ impl Entries {
 }
 
 /// The save directory for `Entries`. May be temporary (delete-on-drop) or permanent.
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum SaveDir {
     /// This directory is temporary and will be deleted, along with its contents, when this wrapper
@@ -755,17 +769,19 @@ pub enum SaveDir {
 
 impl SaveDir {
     /// Get the path of this directory, either temporary or permanent.
+    #[must_use]
     pub fn as_path(&self) -> &Path {
-        use self::SaveDir::*;
+        use self::SaveDir::{Perm, Temp};
         match *self {
             Temp(ref tempdir) => tempdir.path(),
-            Perm(ref pathbuf) => &*pathbuf,
+            Perm(ref pathbuf) => pathbuf,
         }
     }
 
     /// Returns `true` if this is a temporary directory which will be deleted on-drop.
+    #[must_use]
     pub fn is_temporary(&self) -> bool {
-        use self::SaveDir::*;
+        use self::SaveDir::{Perm, Temp};
         match *self {
             Temp(_) => true,
             Perm(_) => false,
@@ -774,8 +790,9 @@ impl SaveDir {
 
     /// Unwrap the `PathBuf` from `self`; if this is a temporary directory,
     /// it will be converted to a permanent one.
+    #[must_use]
     pub fn into_path(self) -> PathBuf {
-        use self::SaveDir::*;
+        use self::SaveDir::{Perm, Temp};
 
         match self {
             Temp(tempdir) => tempdir.into_path(),
@@ -787,17 +804,17 @@ impl SaveDir {
     /// This is a no-op if it already is permanent.
     ///
     /// ### Warning: Potential Data Loss
-    /// Even though this will prevent deletion on-drop, the temporary folder on most OSes
+    /// Even though this will prevent deletion on-drop, the temporary folder on most `OSes`
     /// (where this directory is created by default) can be automatically cleared by the OS at any
     /// time, usually on reboot or when free space is low.
     ///
     /// It is recommended that you relocate the files from a request which you want to keep to a
     /// permanent folder on the filesystem.
     pub fn keep(&mut self) {
-        use self::SaveDir::*;
+        use self::SaveDir::{Perm, Temp};
         *self = match mem::replace(self, Perm(PathBuf::new())) {
             Temp(tempdir) => Perm(tempdir.into_path()),
-            old_self => old_self,
+            old_self @ Perm(_) => old_self,
         };
     }
 
@@ -809,11 +826,15 @@ impl SaveDir {
     /// Files deleted programmatically are deleted directly from disk, as compared to most file
     /// manager applications which use a staging area from which deleted files can be safely
     /// recovered (i.e. Windows' Recycle Bin, OS X's Trash Can, etc.).
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is error in deleting directory or its content
     pub fn delete(self) -> io::Result<()> {
-        use self::SaveDir::*;
+        use self::SaveDir::{Perm, Temp};
         match self {
             Temp(tempdir) => tempdir.close(),
-            Perm(pathbuf) => fs::remove_dir_all(&pathbuf),
+            Perm(pathbuf) => fs::remove_dir_all(pathbuf),
         }
     }
 }
@@ -855,16 +876,22 @@ impl From<str::Utf8Error> for PartialReason {
 
 impl PartialReason {
     /// Return `io::Error` in the `IoError` case or panic otherwise.
+    #[must_use]
     pub fn unwrap_err(self) -> io::Error {
         self.expect_err("`PartialReason` was not `IoError`")
     }
 
     /// Return `io::Error` in the `IoError` case or panic with the given
     /// message otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Will panic if `Error` type is not `io::Error`
+    #[must_use]
     pub fn expect_err(self, msg: &str) -> io::Error {
         match self {
             PartialReason::IoError(e) => e,
-            _ => panic!("{}: {:?}", msg, self),
+            _ => panic!("{msg}: {self:?}"),
         }
     }
 }
@@ -897,9 +924,9 @@ pub struct PartialEntries<M: ReadEntry> {
 }
 
 /// Discards `partial`
-impl<M: ReadEntry> Into<Entries> for PartialEntries<M> {
-    fn into(self) -> Entries {
-        self.entries
+impl<M: ReadEntry> From<PartialEntries<M>> for Entries {
+    fn from(val: PartialEntries<M>) -> Self {
+        val.entries
     }
 }
 
@@ -920,6 +947,7 @@ impl<M: ReadEntry> PartialEntries<M> {
 }
 
 /// The ternary result type used for the `SaveBuilder<_>` API.
+#[allow(clippy::module_name_repetitions)]
 #[derive(Debug)]
 pub enum SaveResult<Success, Partial> {
     /// The operation was a total success. Contained is the complete result.
@@ -985,6 +1013,10 @@ where
     }
 
     /// Map `self` to an `io::Result`, discarding the error in the `Partial` case.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is error in mapping `self` to `io::Result`. `Error` will be discarded in `Partial` case.
     pub fn into_result(self) -> io::Result<S> {
         match self {
             Full(entries) => Ok(entries),
@@ -1001,6 +1033,10 @@ where
     /// partially written file on-disk. If you're not using a temporary directory
     /// (OS-managed or via `TempDir`) then partially written files will remain on-disk until
     /// explicitly removed which could result in excessive disk usage if not monitored closely.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Error` if there is error in mapping from `self` to `io::Result`
     pub fn into_result_strict(self) -> io::Result<S> {
         match self {
             Full(entries) => Ok(entries),
