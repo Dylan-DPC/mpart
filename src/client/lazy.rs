@@ -10,21 +10,6 @@ use std::{fmt, io};
 
 use super::{HttpRequest, HttpStream};
 
-macro_rules! try_lazy (
-    ($field:expr, $try:expr) => (
-        match $try {
-            Ok(ok) => ok,
-            Err(e) => return Err(LazyError::with_field($field.into(), e)),
-        }
-    );
-    ($try:expr) => (
-        match $try {
-            Ok(ok) => ok,
-            Err(e) => return Err(LazyError::without_field(e)),
-        }
-    )
-);
-
 /// A `LazyError` wrapping `std::io::Error`.
 #[allow(clippy::module_name_repetitions)]
 pub type LazyIoError<'a> = LazyError<'a, io::Error>;
@@ -199,9 +184,15 @@ impl<'n, 'd> Multipart<'n, 'd> {
 
         req.apply_headers(prepared.boundary(), prepared.content_len());
 
-        let mut stream = try_lazy!(req.open_stream());
+        let mut stream = match req.open_stream() {
+            Ok(s) => s,
+            Err(e) => return Err(LazyError::without_field(e)),
+        };
 
-        try_lazy!(io::copy(&mut prepared, &mut stream));
+        match io::copy(&mut prepared, &mut stream) {
+            Ok(ok) => ok,
+            Err(e) => return Err(LazyError::without_field(e)),
+        };
 
         stream.finish().map_err(LazyError::without_field)
     }
@@ -379,8 +370,15 @@ impl<'d> PreparedField<'d> {
     ) -> Result<(Self, u64), LazyIoError<'n>> {
         let (content_type, filename) = super::mime_filename(path);
 
-        let file = try_lazy!(name, File::open(path));
-        let content_len = try_lazy!(name, file.metadata()).len();
+        let file = match File::open(path) {
+            Ok(f) => f,
+            Err(e) => return Err(LazyError::with_field(name, e)),
+        };
+
+        let content_len = match file.metadata() {
+            Ok(m) => m.len(),
+            Err(e) => return Err(LazyError::with_field(name, e)),
+        };
 
         let stream = Self::from_stream(&name, boundary, &content_type, filename, Box::new(file));
 
