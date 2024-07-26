@@ -12,15 +12,6 @@ use thiserror::Error;
 
 const EMPTY_STR_HEADER: StrHeader<'static> = StrHeader { name: "", val: "" };
 
-macro_rules! invalid_cont_disp {
-    ($reason: expr, $cause: expr) => {
-        return Err(ParseHeaderError::InvalidContDisp(
-            $reason,
-            $cause.to_string(),
-        ))
-    };
-}
-
 /// Not exposed
 #[derive(Copy, Clone, Debug)]
 pub struct StrHeader<'a> {
@@ -156,22 +147,29 @@ impl ContentDisp {
                 // assert Content-Disposition: form-data
                 // but needs to be parsed out to trim the spaces (allowed by spec IIRC)
                 if disp_type.trim() != "form-data" {
-                    invalid_cont_disp!("unexpected Content-Disposition value", disp_type);
+                    return Err(ParseHeaderError::InvalidContDisp(
+                        "unexpected Content-Disposition value",
+                        disp_type.to_string(),
+                    ));
                 }
                 after_disp_type
             }
-            None => invalid_cont_disp!(
-                "expected additional data after Content-Disposition type",
-                header.val
-            ),
+            None => {
+                return Err(ParseHeaderError::InvalidContDisp(
+                    "expected additional data after Content-Disposition type",
+                    header.val.to_string(),
+                ))
+            }
         };
 
         // Content-Disposition: form-data; name=?
         let (field_name, filename) = match get_str_after("name=", ';', after_disp_type) {
-            None => invalid_cont_disp!(
-                "expected field name and maybe filename, got",
-                after_disp_type
-            ),
+            None => {
+                return Err(ParseHeaderError::InvalidContDisp(
+                    "expected field name and maybe filename, got",
+                    after_disp_type.to_string(),
+                ))
+            }
             // Content-Disposition: form-data; name={field_name}; filename=?
             Some((field_name, after_field_name)) => {
                 let field_name = trim_quotes(field_name);
