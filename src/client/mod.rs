@@ -21,15 +21,6 @@ pub use self::sized::SizedRequest;
 
 const BOUNDARY_LEN: usize = 16;
 
-macro_rules! map_self {
-    ($selff:expr, $try:expr) => {
-        match $try {
-            Ok(()) => Ok($selff),
-            Err(err) => Err(err.into()),
-        }
-    };
-}
-
 /// The entry point of the client-side multipart API.
 ///
 /// Though they perform I/O, the `.write_*()` methods do not return `io::Result<_>` in order to
@@ -65,7 +56,10 @@ impl<S: HttpStream> Multipart<S> {
         name: N,
         val: V,
     ) -> Result<&mut Self, S::Error> {
-        map_self!(self, self.writer.write_text(name.as_ref(), val.as_ref()))
+        match self.writer.write_text(name.as_ref(), val.as_ref()) {
+            Err(err) => Err(err.into()),
+            Ok(()) => Ok(self),
+        }
     }
 
     /// Open a file pointed to by `path` and write its contents to the multipart request,
@@ -84,10 +78,10 @@ impl<S: HttpStream> Multipart<S> {
         name: N,
         path: P,
     ) -> Result<&mut Self, S::Error> {
-        let name = name.as_ref();
-        let path = path.as_ref();
-
-        map_self!(self, self.writer.write_file(name, path))
+        match self.writer.write_file(name.as_ref(), path.as_ref()) {
+            Err(err) => Err(err.into()),
+            Ok(()) => Ok(self),
+        }
     }
 
     /// Write a byte stream to the multipart request as a file field, supplying `filename` if given,
@@ -117,13 +111,13 @@ impl<S: HttpStream> Multipart<S> {
         filename: Option<&str>,
         content_type: Option<Mime>,
     ) -> Result<&mut Self, S::Error> {
-        let name = name.as_ref();
-
-        map_self!(
-            self,
-            self.writer
-                .write_stream(stream, name, filename, content_type)
-        )
+        match self
+            .writer
+            .write_stream(stream, name.as_ref(), filename, content_type)
+        {
+            Err(err) => Err(err.into()),
+            Ok(()) => Ok(self),
+        }
     }
 
     /// Finalize the request and return the response from the server, or the last error if set.
