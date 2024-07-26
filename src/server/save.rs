@@ -1082,38 +1082,37 @@ fn try_read_buf<R: BufRead, Wb: FnMut(&[u8]) -> SaveResult<usize, usize>>(
 ) -> SaveResult<u64, u64> {
     let mut total_copied = 0u64;
 
-    macro_rules! try_here (
-        ($try:expr) => (
-            match $try {
-                Ok(val) => val,
-                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return if total_copied == 0 { Error(e) }
-                                 else { Partial(total_copied, e.into()) },
-            }
-        )
-    );
-
     loop {
-        let res = {
-            let buf = try_here!(src.fill_buf());
-            if buf.is_empty() {
-                break;
+        let buf = match src.fill_buf() {
+            Ok(val) => val,
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return if total_copied == 0 {
+                    SaveResult::Error(e)
+                } else {
+                    SaveResult::Partial(total_copied, e.into())
+                }
             }
-            with_buf(buf)
         };
 
+        if buf.is_empty() {
+            break;
+        }
+
+        let res = with_buf(buf);
+
         match res {
-            Full(copied) => {
+            SaveResult::Full(copied) => {
                 src.consume(copied);
                 total_copied += copied as u64;
             }
-            Partial(copied, reason) => {
+            SaveResult::Partial(copied, reason) => {
                 src.consume(copied);
                 total_copied += copied as u64;
-                return Partial(total_copied, reason);
+                return SaveResult::Partial(total_copied, reason);
             }
-            Error(err) => {
-                return Partial(total_copied, err.into());
+            SaveResult::Error(err) => {
+                return SaveResult::Partial(total_copied, err.into());
             }
         }
     }
@@ -1124,26 +1123,25 @@ fn try_read_buf<R: BufRead, Wb: FnMut(&[u8]) -> SaveResult<usize, usize>>(
 fn try_write_all<W: Write>(mut buf: &[u8], mut dest: W) -> SaveResult<usize, usize> {
     let mut total_copied = 0;
 
-    macro_rules! try_here (
-        ($try:expr) => (
-            match $try {
-                Ok(val) => val,
-                Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return if total_copied == 0 { Error(e) }
-                                 else { Partial(total_copied, e.into()) },
-            }
-        )
-    );
-
     while !buf.is_empty() {
-        match try_here!(dest.write(buf)) {
-            0 => try_here!(Err(io::Error::new(
-                io::ErrorKind::WriteZero,
-                "failed to write whole buffer"
-            ))),
-            copied => {
+        match dest.write(buf) {
+            Ok(0) => {
+                return SaveResult::Error(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "failed to write whole buffer",
+                ))
+            }
+            Ok(copied) => {
                 buf = &buf[copied..];
                 total_copied += copied;
+            }
+            Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return if total_copied == 0 {
+                    SaveResult::Error(e)
+                } else {
+                    SaveResult::Partial(total_copied, e.into())
+                }
             }
         }
     }
